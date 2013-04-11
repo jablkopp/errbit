@@ -1,4 +1,4 @@
-app = 'oliocosta'
+app = 'errbit'
 env = 'production'
 worker_processes 1
 listen "/tmp/unicorn.#{app}.socket", :backlog => 64
