@@ -1,29 +1,40 @@
-# http://michaelvanrooijen.com/articles/2011/06/01-more-concurrency-on-a-single-heroku-dyno-with-the-new-celadon-cedar-stack/
-
-worker_processes 3 # amount of unicorn workers to spin up
-timeout 30         # restarts workers that hang for 30 seconds
+app = 'oliocosta'
+env = 'production'
+worker_processes 1
+listen "/tmp/unicorn.#{app}.socket", :backlog => 64
 preload_app true
+timeout 30
 
-# Taken from github: https://github.com/blog/517-unicorn
-# Though everyone uses pretty miuch the same code
+user app, app
+
+shared_path = "/home/#{app}/shared"
+pid "#{shared_path}/pids/unicorn.pid"
+
+stderr_path "#{shared_path}/log/unicorn.stderr.log"
+stdout_path "#{shared_path}/log/unicorn.stdout.log"
+
 before_fork do |server, worker|
-  ##
-  # When sent a USR2, Unicorn will suffix its pidfile with .oldbin and
-  # immediately start loading up a new version of itself (loaded with a new
-  # version of our app). When this new Unicorn is completely loaded
-  # it will begin spawning workers. The first worker spawned will check to
-  # see if an .oldbin pidfile exists. If so, this means we've just booted up
-  # a new Unicorn and need to tell the old one that it can now die. To do so
-  # we send it a QUIT.
-  #
-  # Using this method we get 0 downtime deploys.
- 
-  old_pid = "#{server.config[:pid]}.oldbin"
+  # the following is highly recomended for Rails + "preload_app true"
+  # as there's no need for the master process to hold a connection
+  if defined?(ActiveRecord::Base)
+    ActiveRecord::Base.connection.disconnect!
+  end
+
+  # Before forking, kill the master process that belongs to the .oldbin PID.
+  # This enables 0 downtime deploys.
+  old_pid = "#{shared_path}/pids/unicorn.pid.oldbin"
   if File.exists?(old_pid) && server.pid != old_pid
     begin
       Process.kill("QUIT", File.read(old_pid).to_i)
     rescue Errno::ENOENT, Errno::ESRCH
       # someone else did our job for us
     end
+  end
+end
+
+after_fork do |server, worker|
+  # the following is *required* for Rails + "preload_app true",
+  if defined?(ActiveRecord::Base)
+    ActiveRecord::Base.establish_connection
   end
 end
